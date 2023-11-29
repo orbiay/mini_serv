@@ -135,6 +135,7 @@ int main (int ac,char **av){
                         bzero(join,sizeof(join));
                         sprintf(join,"client %d: %s",clients[i].id,save);
                         send_to_clients(join,i,master,server);
+			free(msg);
                     }
                     bzero(buffer,sizeof(buffer));
                 }
