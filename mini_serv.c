@@ -1,3 +1,4 @@
+
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -10,34 +11,35 @@
 #include <sys/select.h>
 #include <stdio.h>
 
-typedef struct s_client {
-	int		id;
-	char	*msg;
-}	t_client;
+typedef struct client {
+    int id;
+    int fd;
+}t_clients;
 
-t_client	client[OPEN_MAX];
-int			max;
+t_clients clients[1024];
+int max;
 
-void fatal_err()
+void fatal_error()
 {
-	write(2, "fatal error\n", 12);
-	exit(1);
+    write(2,"fatal error\n",12);
+    exit(1);
 }
 
-void send_to_clients(char buffer[], int connfd, fd_set master, int server)
+/*This function made to send to all client except sender and server*/
+void send_to_clients(char msg[],int sender,fd_set master,int server)
 {
-	for (int i = 0; i <= max; i++)
-	{
-		if (FD_ISSET(i, &master) && i != server && i != connfd)
-			send(i, buffer, strlen(buffer), 0);
-	}
+    for (int i = 0; i <= max ;i++)
+    {
+        if (FD_ISSET(i,&master) && sender != i && server != i)
+            send(i,msg,strlen(msg),0);
+    }
 }
 
-// Bring this Function From main.c
-int	extract_message(char **buf, char **msg)
+/*Bring this function from main.c*/
+int extract_message(char **buf, char **msg)
 {
 	char	*newbuf;
-	int		i;
+	int	i;
 
 	*msg = 0;
 	if (*buf == 0)
@@ -61,108 +63,83 @@ int	extract_message(char **buf, char **msg)
 	return (0);
 }
 
-char	*str_join(char *buf, char *add)
-{
-	char	*newbuf;
-	int		len;
-
-	if (buf == 0)
-		len = 0;
-	else
-		len = strlen(buf);
-	newbuf = malloc(sizeof(*newbuf) * (len + strlen(add) + 1));
-	if (newbuf == 0)
-		return (0);
-	newbuf[0] = 0;
-	if (buf != 0)
-		strcat(newbuf, buf);
-	free(buf);
-	strcat(newbuf, add);
-	return (newbuf);
-}
-
-int main(int ac, char **av)
-{
-	if (ac != 2)
-	{
-		write(2, "Wrong number of arguments\n", 26);
-		exit(1);
-	}
-	int sockfd, next_id = 0, len;
-	struct sockaddr_in servaddr, cli;
-	fd_set master, fdset;
-	// socket create and verification 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0); 
-	if (sockfd < 0)
-		fatal_err();
-	FD_ZERO(&master);
-	FD_ZERO(&fdset);
-	FD_SET(sockfd, &master);
-	bzero(&servaddr, sizeof(servaddr)); 
-	// assign IP, PORT 
-	servaddr.sin_family = AF_INET; 
+int main (int ac,char **av){
+    if(ac != 2)
+    {
+        write(2, "Wrong number of arguments\n", 26);
+        exit(1);
+    }
+    int server,len;
+    int counter = 0;
+    struct sockaddr_in servaddr, cli;
+    char buffer[200000],bufWrite[200000];
+    char str[100];
+    fd_set master,rset;
+    FD_ZERO(&master);
+    FD_ZERO(&rset);
+    server = socket(AF_INET, SOCK_STREAM, 0);
+    if (server < 0)
+        fatal_error();
+    max = server;
+    FD_SET(server,&master);
+    bzero(&servaddr, sizeof(servaddr));
+    bzero(buffer, sizeof(buffer));
+     bzero(str, sizeof(str));
+    servaddr.sin_family = AF_INET; 
 	servaddr.sin_addr.s_addr = htonl(2130706433); //127.0.0.1
 	servaddr.sin_port = htons(atoi(av[1]));
-	// Binding newly created socket to given IP and verification 
-	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
-		fatal_err();
-	if (listen(sockfd, 10) != 0) 
-		fatal_err();
-	max = sockfd;
-	len = sizeof(cli);
-	while (1)
-	{
-		fdset = master;
-		int r = select(max + 1, &fdset, 0,0,0);
-		if (r <= 0)
-			continue;
-		for (int i=0;i<=max;i++)
-		{
-			char	buffer[200000];
-			
-			bzero(buffer, sizeof(buffer));
-			if (FD_ISSET(i, &fdset) && i == sockfd)
-			{
-				//new incomming connection
-				int connfd = accept(sockfd, (struct sockaddr *)&cli, (socklen_t*)&len);
-				
-				if (connfd < 0)
-					continue;
-				client[connfd].id = next_id;
-				if (connfd > max)
-					max = connfd;
-				FD_SET(connfd, &master);
-				sprintf(buffer, "server: client %d just arrived\n", next_id++);
-				send_to_clients(buffer, connfd, master, sockfd);
-			}
-			else if (FD_ISSET(i, &fdset))
-			{
-				//somebody is sending a msg or leaving
-				int res= recv(i, buffer, sizeof(buffer)-1, 0);
-				
-				if (res <= 0)
-				{
-					bzero(buffer, sizeof(buffer));
-					sprintf(buffer, "server: client %d just left\n", client[i].id);
-					send_to_clients(buffer, i, master, sockfd);
-					FD_CLR(i, &master);
-					close(i);
-				}
-				else
-				{
-					buffer[res] = 0;
-					client[i].msg = str_join(client[i].msg, buffer);
-					char	*msg = NULL;
-					char	join[200100];
-					while (extract_message(&client[i].msg, &msg))
-					{
-						bzero(join, sizeof(join));
-						sprintf(join, "client %d: %s", client[i].id, msg);
-						send_to_clients(join, i, master, sockfd);
-						free(msg);
-					}
-				}
-			}
-		}
-	}
+    if ((bind(server, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0) 
+        fatal_error();
+	if (listen(server, 10) != 0)
+        fatal_error();
+    len = sizeof(cli);
+    while(1)
+    {
+        rset = master;
+        int ret = select(max + 1,&rset,NULL,NULL,NULL);
+        if (ret <= 0)
+            continue;
+        for (int i = 0;i <= max;i++)
+        {
+            if (FD_ISSET(i,&rset) && i == server)
+            {
+                int fd = accept(server, (struct sockaddr *)&cli, (socklen_t*)&len);
+                if (fd < 0)
+                    continue;
+                clients[fd].id = counter++;
+                clients[fd].fd = fd;
+                if (max < fd)
+                    max = fd;
+                FD_SET(fd,&master);
+                sprintf(str,"server: client %d just arrived\n",clients[fd].id);
+                send_to_clients(str,fd,master,server);
+            }
+            else if (FD_ISSET(i,&rset))
+            {
+                int res = recv(i,buffer,200000,0);
+                if (res <= 0)
+                {
+                    bzero(str,sizeof(str));
+                    sprintf(str,"server: client %d just left\n",clients[i].id);
+                    send_to_clients(str,i,master,server);
+                    FD_CLR(i,&master);
+                    close(i);
+                }
+                 else
+                {
+                    buffer[res] = '\0';
+                    char *msg = buffer;
+                    char *save = NULL;
+                    char join[200100];
+                    while (extract_message(&msg,&save))
+                    {
+                        bzero(join,sizeof(join));
+                        sprintf(join,"client %d: %s",clients[i].id,save);
+                        send_to_clients(join,i,master,server);
+                    }
+                    bzero(buffer,sizeof(buffer));
+                }
+            }
+        }
+    }
 }
